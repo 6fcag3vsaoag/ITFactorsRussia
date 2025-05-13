@@ -1,0 +1,5 @@
+pip install -U scikit-learn scipy matplotlib
+openpyxl
+tabulate
+statsmodels
+seaborn
