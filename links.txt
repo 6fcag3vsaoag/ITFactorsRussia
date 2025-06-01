@@ -1,0 +1,7 @@
+https://ru.investing.com/equities/tcs-group-holding-plc-historical-data tksg
+https://ru.investing.com/equities/yandex-historical-data yandex
+https://ru.investing.com/equities/mail.ru-grp-wi-historical-data vk
+https://ru.investing.com/equities/rostelecom-historical-data rostelecom
+https://ru.investing.com/currencies/xbr-usd-historical-data brent
+https://ru.investing.com/currencies/usd-rub-historical-data usd_rub
+https://ru.investing.com/indices/investing.com-btc-usd-historical-data bitcoin
