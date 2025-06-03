@@ -17,7 +17,7 @@ class StockAnalysisApp:
     def __init__(self, root):
         self.root = root
         self.root.title("BRU Money Hustler")
-        self.root.geometry("1230x700")
+        self.root.geometry("1230x740")
         self.root.minsize(900, 700)
         
         # Глобальные переменные
