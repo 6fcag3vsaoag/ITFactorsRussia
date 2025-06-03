@@ -2,3 +2,4 @@ build/
 dist/
 backup/
 __pycache__/
+MoneyHustler_project.spec

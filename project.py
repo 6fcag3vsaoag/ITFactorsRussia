@@ -11,6 +11,7 @@ from tkinter import ttk, scrolledtext, messagebox
 import threading
 from PIL import Image, ImageTk
 import io
+import uuid
 
 class StockAnalysisApp:
     def __init__(self, root):
@@ -73,6 +74,7 @@ class StockAnalysisApp:
         # Переменные для элементов управления
         self.data_type_var = tk.StringVar(value='Реальные (RUB)')
         self.model_type_var = tk.StringVar(value='Линейная регрессия')
+        self.iqr_coeff_var = tk.StringVar(value='1.5')
         self.usd_rub_var = tk.DoubleVar(value=80)
         self.brent_var = tk.DoubleVar(value=70)
         self.btc_usd_var = tk.DoubleVar(value=30000)
@@ -96,6 +98,7 @@ class StockAnalysisApp:
         # Привязка событий
         self.data_type_var.trace_add('write', self.on_data_type_change)
         self.model_type_var.trace_add('write', lambda *args: self.update_plot())
+        self.iqr_coeff_var.trace_add('write', self.on_iqr_coeff_change)
         self.usd_rub_var.trace_add('write', self.on_slider_change)
         self.brent_var.trace_add('write', self.on_slider_change)
         self.btc_usd_var.trace_add('write', self.on_slider_change)
@@ -116,6 +119,12 @@ class StockAnalysisApp:
         self.model_type_menu = ttk.Combobox(model_frame, textvariable=self.model_type_var, 
                                           values=['Линейная регрессия', 'Случайный лес'], state='disabled')
         self.model_type_menu.grid(row=1, column=1, sticky='ew', pady=(0, 10), padx=(10, 0))
+        
+        # Выбор коэффициента IQR
+        ttk.Label(model_frame, text="Коэффициент IQR:").grid(row=2, column=0, sticky='w', pady=(0, 10))
+        self.iqr_coeff_menu = ttk.Combobox(model_frame, textvariable=self.iqr_coeff_var, 
+                                         values=['0.0 (без очистки)', '1.0', '1.5', '2.0', '3.0'], state='disabled')
+        self.iqr_coeff_menu.grid(row=2, column=1, sticky='ew', pady=(0, 10), padx=(10, 0))
         
         # Конфигурация сетки
         model_frame.columnconfigure(1, weight=1)
@@ -170,7 +179,7 @@ class StockAnalysisApp:
         try:
             # Загрузка и изменение размера логотипа
             logo_img = Image.open("logo.webp")
-            logo_img = logo_img.resize((350, 100), Image.LANCZOS)  # Размер логотипа подогнан под панель
+            logo_img = logo_img.resize((350, 100), Image.LANCZOS)
             self.logo_tk = ImageTk.PhotoImage(logo_img)
             
             # Отображение логотипа
@@ -187,6 +196,11 @@ class StockAnalysisApp:
             self.update_sliders()
             self.update_plot()
     
+    def on_iqr_coeff_change(self, *args):
+        """Обработчик изменения коэффициента IQR"""
+        if self.analysis_complete:
+            self.start_analysis()
+    
     def on_slider_change(self, *args):
         """Обработчик изменения слайдеров"""
         self.update_slider_labels()
@@ -200,6 +214,7 @@ class StockAnalysisApp:
         # Активируем элементы управления
         self.data_type_menu.config(state='readonly')
         self.model_type_menu.config(state='readonly')
+        self.iqr_coeff_menu.config(state='readonly')
         self.usd_rub_scale.config(state='normal')
         self.brent_scale.config(state='normal')
         self.btc_usd_scale.config(state='normal')
@@ -231,20 +246,26 @@ class StockAnalysisApp:
         except (ValueError, TypeError):
             return value
     
-    def remove_outliers(self, df, columns):
-        """Удаление выбросов по методу IQR"""
+    def remove_outliers(self, df, columns, iqr_coeff):
+        """Удаление выбросов по методу IQR с настраиваемым коэффициентом"""
+        if iqr_coeff == 0:
+            return df
         mask = pd.Series(True, index=df.index)
         for col in columns:
             Q1 = df[col].quantile(0.25)
             Q3 = df[col].quantile(0.75)
             IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
+            lower_bound = Q1 - iqr_coeff * IQR
+            upper_bound = Q3 + iqr_coeff * IQR
             mask = mask & (df[col].between(lower_bound, upper_bound))
         return df[mask]
     
     def perform_analysis(self):
         """Основная функция анализа данных"""
+        # Получаем коэффициент IQR
+        iqr_coeff_str = self.iqr_coeff_var.get()
+        iqr_coeff = 0.0 if iqr_coeff_str == '0.0 (без очистки)' else float(iqr_coeff_str)
+        
         # 1. Чтение и объединение данных
         files = {
             'tksg.csv': 'TCSG',
@@ -283,7 +304,7 @@ class StockAnalysisApp:
         
         # 2. Очистка от выбросов
         columns_to_clean = list(files.values())
-        self.cleaned_df = self.remove_outliers(self.final_df, columns_to_clean)
+        self.cleaned_df = self.remove_outliers(self.final_df, columns_to_clean, iqr_coeff)
         
         # 3. Z-нормализация
         self.normalized_df = self.cleaned_df.copy()
@@ -349,7 +370,7 @@ class StockAnalysisApp:
             }
     
     def update_sliders(self):
-        """Обновление диапазонов слайдеров"""
+        """Обновление диапазонов слайдеров без сброса их текущих значений"""
         if not self.analysis_complete:
             return
             
@@ -359,13 +380,21 @@ class StockAnalysisApp:
                 from_=self.normalized_df['USD_RUB'].min(),
                 to=self.normalized_df['USD_RUB'].max()
             )
-            self.usd_rub_var.set(self.normalized_df['USD_RUB'].mean())
+            current_usd_rub = self.usd_rub_var.get()
+            self.usd_rub_var.set(
+                max(self.normalized_df['USD_RUB'].min(), 
+                    min(self.normalized_df['USD_RUB'].max(), current_usd_rub))
+            )
             
             self.brent_scale.configure(
                 from_=self.normalized_df['Brent'].min(),
                 to=self.normalized_df['Brent'].max()
             )
-            self.brent_var.set(self.normalized_df['Brent'].mean())
+            current_brent = self.brent_var.get()
+            self.brent_var.set(
+                max(self.normalized_df['Brent'].min(), 
+                    min(self.normalized_df['Brent'].max(), current_brent))
+            )
             
             btc_mean = self.cleaned_df['BTC_USD'].mean()
             btc_std = self.cleaned_df['BTC_USD'].std()
@@ -376,26 +405,41 @@ class StockAnalysisApp:
                 from_=btc_min_norm,
                 to=btc_max_norm
             )
-            self.btc_usd_var.set(self.normalized_df['BTC_USD'].mean())
+            current_btc_usd = self.btc_usd_var.get()
+            self.btc_usd_var.set(
+                max(btc_min_norm, min(btc_max_norm, current_btc_usd))
+            )
         else:
             # Для реальных значений
             self.usd_rub_scale.configure(
                 from_=self.cleaned_df['USD_RUB'].min(),
                 to=self.cleaned_df['USD_RUB'].max()
             )
-            self.usd_rub_var.set(self.cleaned_df['USD_RUB'].mean())
+            current_usd_rub = self.usd_rub_var.get()
+            self.usd_rub_var.set(
+                max(self.cleaned_df['USD_RUB'].min(), 
+                    min(self.cleaned_df['USD_RUB'].max(), current_usd_rub))
+            )
             
             self.brent_scale.configure(
                 from_=self.cleaned_df['Brent'].min(),
                 to=self.cleaned_df['Brent'].max()
             )
-            self.brent_var.set(self.cleaned_df['Brent'].mean())
+            current_brent = self.brent_var.get()
+            self.brent_var.set(
+                max(self.cleaned_df['Brent'].min(), 
+                    min(self.cleaned_df['Brent'].max(), current_brent))
+            )
             
             self.btc_usd_scale.configure(
                 from_=self.cleaned_df['BTC_USD'].min(),
                 to=150000
             )
-            self.btc_usd_var.set(self.cleaned_df['BTC_USD'].mean())
+            current_btc_usd = self.btc_usd_var.get()
+            self.btc_usd_var.set(
+                max(self.cleaned_df['BTC_USD'].min(), 
+                    min(150000, current_btc_usd))
+            )
     
     def update_slider_labels(self):
         """Обновление меток значений слайдеров"""
